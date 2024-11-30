@@ -59,6 +59,15 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
     /// Returns the `proposer_boost_root`.
     fn proposer_boost_root(&self) -> Hash256;
 
+    /// Returns the `payload_withhold_boost_root`.
+    fn payload_withhold_boost_root(&self) -> Hash256;
+
+    /// Returns the `payload_withhold_boost_full`.
+    fn payload_withhold_boost_full(&self) -> bool;
+
+    /// Returns the `payload_reveal_boost_root`.
+    fn payload_reveal_boost_root(&self) -> Hash256;
+
     /// Sets `finalized_checkpoint`.
     fn set_finalized_checkpoint(&mut self, checkpoint: Checkpoint);
 
@@ -73,6 +82,15 @@ pub trait ForkChoiceStore<E: EthSpec>: Sized {
 
     /// Sets the proposer boost root.
     fn set_proposer_boost_root(&mut self, proposer_boost_root: Hash256);
+
+    /// Sets the payload withhold boost root.
+    fn set_payload_withhold_boost_root(&mut self, payload_withhold_boost_root: Hash256);
+
+    /// Sets the payload withhold boost full.
+    fn set_payload_withhold_boost_full(&mut self, payload_withhold_boost_full: bool);
+
+    /// Sets the payload reveal boost root.
+    fn set_payload_reveal_boost_root(&mut self, payload_reveal_boost_root: Hash256);
 
     /// Gets the equivocating indices.
     fn equivocating_indices(&self) -> &BTreeSet<u64>;

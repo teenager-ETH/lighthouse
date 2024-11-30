@@ -172,7 +172,9 @@ pub use crate::eth_spec::EthSpecId;
 pub use crate::execution_bid::ExecutionBid;
 pub use crate::execution_block_hash::ExecutionBlockHash;
 pub use crate::execution_block_header::{EncodableExecutionBlockHeader, ExecutionBlockHeader};
-pub use crate::execution_envelope::{ExecutionEnvelope, ExecutionEnvelopeEIP7732};
+pub use crate::execution_envelope::{
+    ExecutionEnvelope, ExecutionEnvelopeEIP7732, ExecutionEnvelopeRef,
+};
 pub use crate::execution_payload::{
     ExecutionPayload, ExecutionPayloadBellatrix, ExecutionPayloadCapella, ExecutionPayloadDeneb,
     ExecutionPayloadEIP7732, ExecutionPayloadElectra, ExecutionPayloadRef, Transaction,

@@ -139,6 +139,9 @@ pub struct BeaconForkChoiceStore<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<
     unrealized_justified_checkpoint: Checkpoint,
     unrealized_finalized_checkpoint: Checkpoint,
     proposer_boost_root: Hash256,
+    payload_withhold_boost_root: Hash256,
+    payload_withhold_boost_full: bool,
+    payload_reveal_boost_root: Hash256,
     equivocating_indices: BTreeSet<u64>,
     _phantom: PhantomData<E>,
 }
@@ -188,6 +191,9 @@ where
             unrealized_justified_checkpoint: justified_checkpoint,
             unrealized_finalized_checkpoint: finalized_checkpoint,
             proposer_boost_root: Hash256::zero(),
+            payload_withhold_boost_root: Hash256::zero(),
+            payload_withhold_boost_full: false,
+            payload_reveal_boost_root: Hash256::zero(),
             equivocating_indices: BTreeSet::new(),
             _phantom: PhantomData,
         })
@@ -205,6 +211,9 @@ where
             unrealized_justified_checkpoint: self.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: self.unrealized_finalized_checkpoint,
             proposer_boost_root: self.proposer_boost_root,
+            payload_withhold_boost_root: self.payload_withhold_boost_root,
+            payload_withhold_boost_full: self.payload_withhold_boost_full,
+            payload_reveal_boost_root: self.payload_reveal_boost_root,
             equivocating_indices: self.equivocating_indices.clone(),
         }
     }
@@ -226,6 +235,9 @@ where
             unrealized_justified_checkpoint: persisted.unrealized_justified_checkpoint,
             unrealized_finalized_checkpoint: persisted.unrealized_finalized_checkpoint,
             proposer_boost_root: persisted.proposer_boost_root,
+            payload_withhold_boost_root: persisted.payload_withhold_boost_root,
+            payload_withhold_boost_full: persisted.payload_withhold_boost_full,
+            payload_reveal_boost_root: persisted.payload_reveal_boost_root,
             equivocating_indices: persisted.equivocating_indices,
             _phantom: PhantomData,
         })
@@ -279,6 +291,18 @@ where
 
     fn proposer_boost_root(&self) -> Hash256 {
         self.proposer_boost_root
+    }
+
+    fn payload_withhold_boost_root(&self) -> Hash256 {
+        self.payload_withhold_boost_root
+    }
+
+    fn payload_withhold_boost_full(&self) -> bool {
+        self.payload_withhold_boost_full
+    }
+
+    fn payload_reveal_boost_root(&self) -> Hash256 {
+        self.payload_reveal_boost_root
     }
 
     fn set_finalized_checkpoint(&mut self, checkpoint: Checkpoint) {
@@ -337,6 +361,18 @@ where
         self.proposer_boost_root = proposer_boost_root;
     }
 
+    fn set_payload_withhold_boost_root(&mut self, payload_withhold_boost_root: Hash256) {
+        self.payload_withhold_boost_root = payload_withhold_boost_root;
+    }
+
+    fn set_payload_withhold_boost_full(&mut self, payload_withhold_boost_full: bool) {
+        self.payload_withhold_boost_full = payload_withhold_boost_full;
+    }
+
+    fn set_payload_reveal_boost_root(&mut self, payload_reveal_boost_root: Hash256) {
+        self.payload_reveal_boost_root = payload_reveal_boost_root;
+    }
+
     fn equivocating_indices(&self) -> &BTreeSet<u64> {
         &self.equivocating_indices
     }
@@ -359,5 +395,9 @@ pub struct PersistedForkChoiceStore {
     pub unrealized_justified_checkpoint: Checkpoint,
     pub unrealized_finalized_checkpoint: Checkpoint,
     pub proposer_boost_root: Hash256,
+    // TODO(EIP7732): implement db migration
+    pub payload_withhold_boost_root: Hash256,
+    pub payload_withhold_boost_full: bool,
+    pub payload_reveal_boost_root: Hash256,
     pub equivocating_indices: BTreeSet<u64>,
 }

@@ -23,6 +23,7 @@ pub mod data_column_verification;
 pub mod deneb_readiness;
 mod early_attester_cache;
 pub mod electra_readiness;
+pub mod envelope_verification;
 mod errors;
 pub mod eth1_chain;
 mod eth1_finalization_cache;
@@ -83,6 +84,7 @@ pub use block_verification::{
 pub use block_verification_types::AvailabilityPendingExecutedBlock;
 pub use block_verification_types::ExecutedBlock;
 pub use canonical_head::{CachedHead, CanonicalHead, CanonicalHeadRwLock};
+pub use envelope_verification::{EnvelopeError, ExecutionPendingEnvelope, GossipVerifiedEnvelope};
 pub use eth1_chain::{Eth1Chain, Eth1ChainBackend};
 pub use events::ServerSentEventHandler;
 pub use execution_layer::EngineState;

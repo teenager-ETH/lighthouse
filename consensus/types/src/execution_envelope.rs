@@ -8,8 +8,9 @@ use superstruct::superstruct;
 use test_random_derive::TestRandom;
 use tree_hash_derive::TreeHash;
 
+// in all likelihood, this will be superstructed so might as well start early eh?
 #[superstruct(
-    variants(EIP7732),
+    variants(EIP7732, NextFork),
     variant_attributes(
         derive(
             Debug,
@@ -27,6 +28,10 @@ use tree_hash_derive::TreeHash;
         serde(bound = "E: EthSpec", deny_unknown_fields),
         arbitrary(bound = "E: EthSpec")
     ),
+    ref_attributes(
+        derive(Debug, PartialEq, TreeHash),
+        tree_hash(enum_behaviour = "transparent")
+    ),
     cast_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "BeaconStateError::IncorrectStateVariant")
 )]
@@ -41,12 +46,32 @@ use tree_hash_derive::TreeHash;
 pub struct ExecutionEnvelope<E: EthSpec> {
     #[superstruct(only(EIP7732), partial_getter(rename = "payload_eip7732"))]
     pub payload: ExecutionPayloadEIP7732<E>,
+    #[superstruct(only(NextFork), partial_getter(rename = "payload_next_fork"))]
+    pub payload: ExecutionPayloadEIP7732<E>,
+    pub execution_requests: ExecutionRequests<E>,
     #[serde(with = "serde_utils::quoted_u64")]
+    #[superstruct(getter(copy))]
     pub builder_index: u64,
+    #[superstruct(getter(copy))]
     pub beacon_block_root: Hash256,
     pub blob_kzg_commitments: KzgCommitments<E>,
-    pub payment_withheld: bool,
+    #[superstruct(getter(copy))]
+    pub payload_withheld: bool,
+    #[superstruct(getter(copy))]
     pub state_root: Hash256,
 }
 
-impl<E: EthSpec> SignedRoot for ExecutionEnvelopeEIP7732<E> {}
+impl<'a, E: EthSpec> SignedRoot for ExecutionEnvelopeRef<'a, E> {}
+
+impl<'a, E: EthSpec> ExecutionEnvelopeRef<'a, E> {
+    pub fn payload(&self) -> ExecutionPayloadRef<'a, E> {
+        match self {
+            ExecutionEnvelopeRef::EIP7732(envelope) => {
+                ExecutionPayloadRef::EIP7732(&envelope.payload)
+            }
+            ExecutionEnvelopeRef::NextFork(envelope) => {
+                ExecutionPayloadRef::EIP7732(&envelope.payload)
+            }
+        }
+    }
+}

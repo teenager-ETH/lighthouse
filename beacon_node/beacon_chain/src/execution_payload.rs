@@ -10,7 +10,7 @@
 use crate::otb_verification_service::OptimisticTransitionBlock;
 use crate::{
     BeaconChain, BeaconChainError, BeaconChainTypes, BlockError, BlockProductionError,
-    ExecutionPayloadError,
+    EnvelopeError, ExecutionPayloadError,
 };
 use execution_layer::{
     BlockProposalContents, BlockProposalContentsType, BuilderParams, NewPayloadRequest,
@@ -26,7 +26,6 @@ use state_processing::per_block_processing::{
 };
 use std::sync::Arc;
 use tokio::task::JoinHandle;
-use tree_hash::TreeHash;
 use types::payload::BlockProductionVersion;
 use types::*;
 
@@ -52,18 +51,24 @@ pub enum NotifyExecutionLayer {
 /// Used to await the result of executing payload with a remote EE.
 pub struct PayloadNotifier<T: BeaconChainTypes> {
     pub chain: Arc<BeaconChain<T>>,
-    pub block: Arc<SignedBeaconBlock<T::EthSpec>>,
-    payload_verification_status: Option<PayloadVerificationStatus>,
+    pub parent_root: Hash256,
+    pub payload_verification_state: PayloadVerificationState<T::EthSpec>,
 }
 
-impl<T: BeaconChainTypes> PayloadNotifier<T> {
+pub enum PayloadVerificationState<E: EthSpec> {
+    PreComputed(PayloadVerificationStatus),
+    Request(NewPayloadRequest<E>),
+}
+
+impl<'block, T: BeaconChainTypes> PayloadNotifier<T> {
     pub fn new(
         chain: Arc<BeaconChain<T>>,
-        block: Arc<SignedBeaconBlock<T::EthSpec>>,
+        block: &SignedBeaconBlock<T::EthSpec>,
         state: &BeaconState<T::EthSpec>,
         notify_execution_layer: NotifyExecutionLayer,
     ) -> Result<Self, BlockError> {
-        let payload_verification_status = if is_execution_enabled(state, block.message().body()) {
+        let parent_root = block.parent_root();
+        let payload_verification_state = if is_execution_enabled(state, block.message().body()) {
             // Perform the initial stages of payload verification.
             //
             // We will duplicate these checks again during `per_block_processing`, however these
@@ -78,12 +83,11 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                 &chain.spec,
             )
             .map_err(BlockError::PerBlockProcessingError)?;
+            let new_payload_request: NewPayloadRequest<T::EthSpec> = block_message.try_into()?;
 
             match notify_execution_layer {
                 NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
-                    // Create a NewPayloadRequest (no clones required) and check optimistic sync verifications
-                    let new_payload_request: NewPayloadRequest<T::EthSpec> =
-                        block_message.try_into()?;
+                    // check optimistic sync verifications
                     if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
                         warn!(
                             chain.log,
@@ -92,29 +96,68 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
                             "info" => "you can silence this warning with --disable-optimistic-finalized-sync",
                             "error" => ?e,
                         );
-                        None
+                        PayloadVerificationState::Request(new_payload_request)
                     } else {
-                        Some(PayloadVerificationStatus::Optimistic)
+                        PayloadVerificationState::PreComputed(PayloadVerificationStatus::Optimistic)
                     }
                 }
-                _ => None,
+                _ => PayloadVerificationState::Request(new_payload_request),
             }
         } else {
-            Some(PayloadVerificationStatus::Irrelevant)
+            PayloadVerificationState::PreComputed(PayloadVerificationStatus::Irrelevant)
         };
 
         Ok(Self {
             chain,
-            block,
-            payload_verification_status,
+            parent_root,
+            payload_verification_state,
+        })
+    }
+
+    pub fn from_envelope(
+        chain: Arc<BeaconChain<T>>,
+        envelope: ExecutionEnvelopeRef<T::EthSpec>,
+        notify_execution_layer: NotifyExecutionLayer,
+    ) -> Result<Self, EnvelopeError> {
+        let parent_root = envelope.beacon_block_root();
+        let new_payload_request: NewPayloadRequest<T::EthSpec> = envelope.try_into()?;
+
+        let payload_verification_state = if !envelope.payload_withheld() {
+            match notify_execution_layer {
+                NotifyExecutionLayer::No if chain.config.optimistic_finalized_sync => {
+                    // check optimistic sync verifications
+                    if let Err(e) = new_payload_request.perform_optimistic_sync_verifications() {
+                        warn!(
+                            chain.log,
+                            "Falling back to slow block hash verification";
+                            "block_number" => envelope.payload().block_number(),
+                            "info" => "you can silence this warning with --disable-optimistic-finalized-sync",
+                            "error" => ?e,
+                        );
+                        PayloadVerificationState::Request(new_payload_request)
+                    } else {
+                        PayloadVerificationState::PreComputed(PayloadVerificationStatus::Optimistic)
+                    }
+                }
+                _ => PayloadVerificationState::Request(new_payload_request),
+            }
+        } else {
+            PayloadVerificationState::PreComputed(PayloadVerificationStatus::Irrelevant)
+        };
+
+        Ok(Self {
+            chain,
+            parent_root,
+            payload_verification_state,
         })
     }
 
     pub async fn notify_new_payload(self) -> Result<PayloadVerificationStatus, BlockError> {
-        if let Some(precomputed_status) = self.payload_verification_status {
-            Ok(precomputed_status)
-        } else {
-            notify_new_payload(&self.chain, self.block.message()).await
+        match self.payload_verification_state {
+            PayloadVerificationState::Request(request) => {
+                notify_new_payload(&self.chain, request, self.parent_root).await
+            }
+            PayloadVerificationState::PreComputed(status) => Ok(status),
         }
     }
 }
@@ -128,17 +171,18 @@ impl<T: BeaconChainTypes> PayloadNotifier<T> {
 /// contains a few extra checks by running `partially_verify_execution_payload` first:
 ///
 /// https://github.com/ethereum/consensus-specs/blob/v1.1.9/specs/bellatrix/beacon-chain.md#notify_new_payload
-async fn notify_new_payload<'a, T: BeaconChainTypes>(
+async fn notify_new_payload<T: BeaconChainTypes>(
     chain: &Arc<BeaconChain<T>>,
-    block: BeaconBlockRef<'a, T::EthSpec>,
+    request: NewPayloadRequest<T::EthSpec>,
+    parent_root: Hash256,
 ) -> Result<PayloadVerificationStatus, BlockError> {
     let execution_layer = chain
         .execution_layer
         .as_ref()
         .ok_or(ExecutionPayloadError::NoExecutionConnection)?;
 
-    let execution_block_hash = block.execution_payload()?.block_hash();
-    let new_payload_response = execution_layer.notify_new_payload(block.try_into()?).await;
+    let execution_block_hash = request.block_hash();
+    let new_payload_response = execution_layer.notify_new_payload(request).await;
 
     match new_payload_response {
         Ok(status) => match status {
@@ -156,10 +200,13 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                     "validation_error" => ?validation_error,
                     "latest_valid_hash" => ?latest_valid_hash,
                     "execution_block_hash" => ?execution_block_hash,
+                    /*
+                    // EIP-7732 - none of this stuff is available in the envelope.. is it worth it?
                     "root" => ?block.tree_hash_root(),
                     "graffiti" => block.body().graffiti().as_utf8_lossy(),
                     "proposer_index" => block.proposer_index(),
                     "slot" => block.slot(),
+                    */
                     "method" => "new_payload",
                 );
 
@@ -181,8 +228,7 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                 {
                     // This block has not yet been applied to fork choice, so the latest block that was
                     // imported to fork choice was the parent.
-                    let latest_root = block.parent_root();
-
+                    let latest_root = parent_root;
                     chain
                         .process_invalid_execution_payload(&InvalidationOperation::InvalidateMany {
                             head_block_root: latest_root,
@@ -202,10 +248,13 @@ async fn notify_new_payload<'a, T: BeaconChainTypes>(
                     "Invalid execution payload block hash";
                     "validation_error" => ?validation_error,
                     "execution_block_hash" => ?execution_block_hash,
+                    /*
+                    // Again this stuff isn't available in the envelope
                     "root" => ?block.tree_hash_root(),
                     "graffiti" => block.body().graffiti().as_utf8_lossy(),
                     "proposer_index" => block.proposer_index(),
                     "slot" => block.slot(),
+                    */
                     "method" => "new_payload",
                 );
 

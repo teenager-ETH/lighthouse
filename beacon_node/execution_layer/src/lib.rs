@@ -1358,7 +1358,7 @@ impl<E: EthSpec> ExecutionLayer<E> {
     /// Maps to the `engine_newPayload` JSON-RPC call.
     pub async fn notify_new_payload(
         &self,
-        new_payload_request: NewPayloadRequest<'_, E>,
+        new_payload_request: NewPayloadRequest<E>,
     ) -> Result<PayloadStatus, Error> {
         let _timer = metrics::start_timer_vec(
             &metrics::EXECUTION_LAYER_REQUEST_TIMES,

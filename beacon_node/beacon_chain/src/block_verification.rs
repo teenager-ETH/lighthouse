@@ -684,7 +684,8 @@ pub struct SignatureVerifiedBlock<T: BeaconChainTypes> {
 }
 
 /// Used to await the result of executing payload with an EE.
-type PayloadVerificationHandle = JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
+pub type PayloadVerificationHandle =
+    JoinHandle<Option<Result<PayloadVerificationOutcome, BlockError>>>;
 
 /// A wrapper around a `SignedBeaconBlock` that indicates that this block is fully verified and
 /// ready to import into the `BeaconChain`. The validation includes:
@@ -1344,9 +1345,10 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
         //
         // We do this as early as possible so that later parts of this function can run in parallel
         // with the payload verification.
+        let block_copy = block.block_cloned();
         let payload_notifier = PayloadNotifier::new(
             chain.clone(),
-            block.block_cloned(),
+            &block_copy,
             &parent.pre_state,
             notify_execution_layer,
         )?;
@@ -1354,7 +1356,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
             is_merge_transition_block(&parent.pre_state, block.message().body());
         let payload_verification_future = async move {
             let chain = payload_notifier.chain.clone();
-            let block = payload_notifier.block.clone();
+            let block = block_copy;
 
             // If this block triggers the merge, check to ensure that it references valid execution
             // blocks.

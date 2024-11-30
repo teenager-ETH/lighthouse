@@ -784,7 +784,7 @@ impl HttpJsonRpc {
 
     pub async fn new_payload_v3_deneb<E: EthSpec>(
         &self,
-        new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
+        new_payload_request_deneb: NewPayloadRequestDeneb<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
             JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
@@ -805,7 +805,7 @@ impl HttpJsonRpc {
 
     pub async fn new_payload_v4_electra<E: EthSpec>(
         &self,
-        new_payload_request_electra: NewPayloadRequestElectra<'_, E>,
+        new_payload_request_electra: NewPayloadRequestElectra<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let params = json!([
             JsonExecutionPayload::V4(new_payload_request_electra.execution_payload.clone().into()),
@@ -1191,7 +1191,7 @@ impl HttpJsonRpc {
     // new_payload that the execution engine supports
     pub async fn new_payload<E: EthSpec>(
         &self,
-        new_payload_request: NewPayloadRequest<'_, E>,
+        new_payload_request: NewPayloadRequest<E>,
     ) -> Result<PayloadStatusV1, Error> {
         let engine_capabilities = self.get_engine_capabilities(None).await?;
         match new_payload_request {
@@ -1221,6 +1221,7 @@ impl HttpJsonRpc {
                     Err(Error::RequiredMethodUnsupported("engine_newPayloadV4"))
                 }
             }
+            NewPayloadRequest::EIP7732(_) => todo!("EIP-7732 Engine API new_payload"),
         }
     }
 
