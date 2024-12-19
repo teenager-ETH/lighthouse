@@ -1,7 +1,7 @@
 use crate::consensus_context::ConsensusContext;
 use errors::{BlockOperationError, BlockProcessingError, HeaderInvalid};
 use rayon::prelude::*;
-use safe_arith::{ArithError, SafeArith};
+use safe_arith::{ArithError, SafeArith, SafeArithIter};
 use signature_sets::{block_proposal_signature_set, get_pubkey_from_state, randao_signature_set};
 use std::borrow::Cow;
 use tree_hash::TreeHash;
@@ -512,9 +512,9 @@ pub fn get_expected_withdrawals<E: EthSpec>(
 
     // [New in Electra:EIP7251]
     // Consume pending partial withdrawals
-    let partial_withdrawals_count =
+    let processed_partial_withdrawals_count =
         if let Ok(partial_withdrawals) = state.pending_partial_withdrawals() {
-            let mut partial_withdrawals_count = 0;
+            let mut processed_partial_withdrawals_count = 0;
             for withdrawal in partial_withdrawals {
                 if withdrawal.withdrawable_epoch > epoch
                     || withdrawals.len() == spec.max_pending_partials_per_withdrawals_sweep as usize
@@ -547,9 +547,9 @@ pub fn get_expected_withdrawals<E: EthSpec>(
                     });
                     withdrawal_index.safe_add_assign(1)?;
                 }
-                partial_withdrawals_count.safe_add_assign(1)?;
+                processed_partial_withdrawals_count.safe_add_assign(1)?;
             }
-            Some(partial_withdrawals_count)
+            Some(processed_partial_withdrawals_count)
         } else {
             None
         };
@@ -560,9 +560,19 @@ pub fn get_expected_withdrawals<E: EthSpec>(
     );
     for _ in 0..bound {
         let validator = state.get_validator(validator_index as usize)?;
-        let balance = *state.balances().get(validator_index as usize).ok_or(
-            BeaconStateError::BalancesOutOfBounds(validator_index as usize),
-        )?;
+        let partially_withdrawn_balance = withdrawals
+            .iter()
+            .filter_map(|withdrawal| {
+                (withdrawal.validator_index == validator_index).then_some(withdrawal.amount)
+            })
+            .safe_sum()?;
+        let balance = state
+            .balances()
+            .get(validator_index as usize)
+            .ok_or(BeaconStateError::BalancesOutOfBounds(
+                validator_index as usize,
+            ))?
+            .safe_sub(partially_withdrawn_balance)?;
         if validator.is_fully_withdrawable_at(balance, epoch, spec, fork_name) {
             withdrawals.push(Withdrawal {
                 index: withdrawal_index,
@@ -594,7 +604,7 @@ pub fn get_expected_withdrawals<E: EthSpec>(
             .safe_rem(state.validators().len() as u64)?;
     }
 
-    Ok((withdrawals.into(), partial_withdrawals_count))
+    Ok((withdrawals.into(), processed_partial_withdrawals_count))
 }
 
 /// Apply withdrawals to the state.
