@@ -764,6 +764,18 @@ pub fn process_consolidation_request<E: EthSpec>(
     {
         return Ok(());
     }
+    // Verify the source has been active long enough
+    if current_epoch
+        < source_validator
+            .activation_epoch
+            .safe_add(spec.shard_committee_period)?
+    {
+        return Ok(());
+    }
+    // Verify the source has no pending withdrawals in the queue
+    if state.get_pending_balance_to_withdraw(source_index)? > 0 {
+        return Ok(());
+    }
 
     // Initiate source validator exit and append pending consolidation
     let source_exit_epoch = state
